@@ -1,0 +1,13 @@
+Package: hmp
+Type: Package
+Title: Create and analyze Heterochromatic Modulation Photometry
+Version: 0.1.0
+Author: Cord Huchzermeyer <huchzi@email.de>
+Maintainer: Cord Huchzermeyer <huchzi@email.de>
+Description: Create HMP stimuli for the 4-primary LED stimulator and fit the HMP model to the data from the result files.
+License: GPL (>= 3)
+Encoding: UTF-8
+LazyData: true
+Imports: 
+    ggplot2
+RoxygenNote: 7.2.3
