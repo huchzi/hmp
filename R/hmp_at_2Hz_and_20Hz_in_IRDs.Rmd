@@ -23,7 +23,7 @@ redcap_data[, patid := record_id]
 
 ```
 
-```{r}
+```{r functions, echo=FALSE}
 
 select_data <- function(pid, data, type = "RG") {
   data <- data.table(data)
@@ -40,7 +40,7 @@ select_data <- function(pid, data, type = "RG") {
   return(hmp_table)
 }
 
-model_hmp <- function(hmp_table) {
+hmp_parameters <- function(hmp_table) {
   return_value <- data.frame(type = character(0),
                              frequency = integer(0),
                              coef = double(0))
@@ -103,7 +103,8 @@ plot_hmp <-
       ggtitle(class(hmp_table)[length(class(hmp_table))])
   }
 
-hmp_function <-
+# hmp_curve fits an HMP model and returns a data.frame with coordinates of the curves for plotting
+hmp_curve <-
   function (hmp_table)
   {
     show_function <- data.frame(
@@ -120,7 +121,6 @@ hmp_function <-
                                             fr, ],
                          start = list(h = 0, v = 2)))
       if (!is.null(hmp_fit)) {
-        print(coef(hmp_fit))
         show_function <- rbind(
           show_function,
           data.frame(
@@ -161,19 +161,18 @@ apply_linear <- function(hmp_table) {
 
 ```
 
+# Plot HMP curves
 
-# Fit HMP curves
+HMP functions will be fit to the 20Hz green-red and blue-green HMP data and plot the fitted models.
 
-HMP functions will be fit to the 20Hz green-red and blue-green HMP data.
-
-```{r fit HMP green_red}
+```{r create HMP curves for green_red}
 
 hmp_functions_GR <-
   lapply(unique(tCS_data$patid), function (x) {
     select_data(pid = x,
                 data = tCS_data[frequency == 20, ],
                 type = "RG") |>
-      hmp_function()
+      hmp_curve()
   })
 
 hmp_functions_GR <- do.call("rbind.data.frame", hmp_functions_GR)
@@ -182,19 +181,51 @@ hmp_functions_GR <- merge(hmp_functions_GR, unique(tCS_data[, .(patid, group)]))
 
 ```
 
-```{r fit HMP blue_green}
+```{r create HMP curves for blue_green}
 
 hmp_functions_BG <-
   lapply(unique(tCS_data$patid), function (x) {
     select_data(pid = x,
                 data = tCS_data[frequency == 20, ],
                 type = "BG") |>
-      hmp_function()
+      hmp_curve()
   })
 
 hmp_functions_BG <- do.call("rbind.data.frame", hmp_functions_BG)
 
 hmp_functions_BG <- merge(hmp_functions_BG, unique(tCS_data[, .(patid, group)]))
+
+```
+
+```{r plot by patients green_red}
+
+ggplot(tCS_data[hmp_type == "green_red", ], aes(x = hmp_x, y = hmp_y)) +
+  geom_point(aes(group = factor(frequency), color = factor(frequency))) +
+  geom_line(data = hmp_functions_GR, aes(x = x, y = y, color = factor(frequency))) +
+  geom_smooth(data = tCS_data[hmp_type == "green_red" & frequency == 2, ],
+              method = "lm", aes(color = factor(frequency))) + 
+  facet_wrap(~ factor(group) + patid) +
+  scale_y_continuous("log10 Sensitivity", limits = c(0, 2)) + 
+  theme_bw() + 
+  scale_x_continuous("log10 C1/C2") +
+  ggtitle("Green vs. Red")
+
+ggsave(here("images", "green_red.png"), height = 8, width = 12)
+```
+
+```{r plot by patients blue_green}
+ggplot(tCS_data[hmp_type == "blue_green", ], aes(x = hmp_x, y = hmp_y)) +
+  geom_point(aes(group = factor(frequency), color = factor(frequency))) +
+  geom_line(data = hmp_functions_BG, aes(x = x, y = y, color = factor(frequency))) +
+  geom_smooth(data = tCS_data[hmp_type == "blue_green" & frequency == 2, ],
+              method = "lm", aes(color = factor(frequency))) + 
+  facet_wrap(~ factor(group) + patid) +
+  scale_y_continuous("log10 Sensitivity", limits = c(0, 2)) + 
+  theme_bw() + 
+  scale_x_continuous("log10 C1/C2") +
+  ggtitle("Blue vs. Green")
+
+ggsave(here("images", "blue_green.png"), height = 8, width = 12)
 
 ```
 
@@ -219,41 +250,9 @@ ggplot(tCS_data[hmp_type == "blue_green", ], aes(x = hmp_x, y = hmp_y)) +
 
 ```
 
-# Plot by patients
+# Differences between groups
 
-```{r plot by patients}
-
-ggplot(tCS_data[hmp_type == "green_red", ], aes(x = hmp_x, y = hmp_y)) +
-  geom_point(aes(group = factor(frequency), color = factor(frequency))) +
-  geom_line(data = hmp_functions_GR, aes(x = x, y = y, color = factor(frequency))) +
-  geom_smooth(data = tCS_data[hmp_type == "green_red" & frequency == 2, ],
-              method = "lm", aes(color = factor(frequency))) + 
-  facet_wrap(~ factor(group) + patid) +
-  scale_y_continuous("log10 Sensitivity", limits = c(0, 2)) + 
-  theme_bw() + 
-  scale_x_continuous("log10 C1/C2") +
-  ggtitle("Green vs. Red")
-
-ggsave(here("images", "green_red.png"), height = 8, width = 12)
-
-ggplot(tCS_data[hmp_type == "blue_green", ], aes(x = hmp_x, y = hmp_y)) +
-  geom_point(aes(group = factor(frequency), color = factor(frequency))) +
-  geom_line(data = hmp_functions_BG, aes(x = x, y = y, color = factor(frequency))) +
-  geom_smooth(data = tCS_data[hmp_type == "blue_green" & frequency == 2, ],
-              method = "lm", aes(color = factor(frequency))) + 
-  facet_wrap(~ factor(group) + patid) +
-  scale_y_continuous("log10 Sensitivity", limits = c(0, 2)) + 
-  theme_bw() + 
-  scale_x_continuous("log10 C1/C2") +
-  ggtitle("Blue vs. Green")
-
-ggsave(here("images", "blue_green.png"), height = 8, width = 12)
-
-```
-
-
-
-```{r}
+```{r mean-y vs. clinical parameters}
 
 green_red <- tCS_data[frequency == 2 & hmp_type == "green_red", 
                          .(log_sens = mean(hmp_y)), by = .(patid)]
@@ -284,7 +283,7 @@ hmp_parameter_GR <-
     select_data(pid = x,
                 data = tCS_data[frequency == 20, ],
                 type = "RG") |>
-      model_hmp()
+      hmp_parameters()
   })
 
 hmp_parameter_GR <- do.call("rbind.data.frame", hmp_parameter_GR)
@@ -307,14 +306,14 @@ ggplot(hmp_parameter_GR, aes(x = protan_od, y = v)) +
 
 ```
 
-```{r HMP parameters green_red}
+```{r HMP parameters blue_gree}
 
 hmp_parameter_BG <-
   lapply(unique(tCS_data$patid), function (x) {
     select_data(pid = x,
                 data = tCS_data[frequency == 20, ],
                 type = "BG") |>
-      model_hmp()
+      hmp_parameters()
   })
 
 hmp_parameter_BG <- do.call("rbind.data.frame", hmp_parameter_BG)
@@ -333,14 +332,16 @@ ggplot(hmp_parameter_BG, aes(x = factor(group), y = h)) +
 
 # Check model fit
 
-```{r}
+## HMP models
+
+```{r hmp_residuals green_red at 20Hz}
 
 hmp_RG <-
   lapply(unique(tCS_data$patid), function (x) {
     select_data(pid = x,
                 data = tCS_data[frequency == 20, ],
                 type = "RG") |>
-      apply_model()
+      apply_hmp()
   })
 
 fits <- lapply(hmp_RG, function(x) data.table(patid = x$patid, 
@@ -361,14 +362,14 @@ shapiro.test(fits$x)
 
 ```
 
-```{r}
+```{r hmp_residuals blue_green at 20Hz}
 
 hmp_BG <-
   lapply(unique(tCS_data$patid), function (x) {
     select_data(pid = x,
                 data = tCS_data[frequency == 20, ],
                 type = "BG") |>
-      apply_model()
+      apply_hmp()
   })
 
 fits <- lapply(hmp_BG, function(x) data.table(patid = x$patid, 
@@ -389,7 +390,10 @@ ggplot(fits, aes(x = y)) +
 shapiro.test(fits$y)
 
 ```
-```{r}
+
+## Linear models
+
+```{r linear residuals green_red at 2Hz}
 
 linear_RG <-
   lapply(unique(tCS_data$patid), function (x) {
@@ -418,7 +422,8 @@ ggplot(fits, aes(x = y)) +
 shapiro.test(fits$y)
 
 ```
-```{r}
+
+```{r linear residuals blue_green at 2Hz}
 
 linear_BG <-
   lapply(unique(tCS_data$patid), function (x) {
@@ -447,3 +452,13 @@ ggplot(fits, aes(x = y)) +
 shapiro.test(fits$y)
 
 ```
+
+# Analyze REDCap data
+
+```{r}
+
+redcap_data[order(bcva_od), .(bcva_od, protan_od, tritan_od, static_md_od)]
+
+cor(redcap_data$bcva_od, redcap_data$protan_od, method = "spearman", use = "complete.obs")
+```
+
