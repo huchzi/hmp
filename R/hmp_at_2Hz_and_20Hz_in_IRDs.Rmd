@@ -17,6 +17,9 @@ library(ggplot2)
 i_am("R/hmp_at_2Hz_and_20Hz_in_IRDs.Rmd") 
 
 tCS_data <- read.csv(here("data", "tCS_data.csv")) |> data.table()
+redcap_data <- read.csv(here("data", "redcap_data.csv")) |> data.table()
+
+redcap_data[, patid := record_id]
 
 ```
 
@@ -52,9 +55,11 @@ model_hmp <- function(hmp_table) {
       print(coef(hmp_fit)[[1]])
       return_value <- rbind(return_value,
                             data.frame(
+                              patid = hmp_table$patid[1],
                               type = class(hmp_table)[length(class(hmp_table))],
                               frequency = fr,
-                              coef = coef(hmp_fit)[[1]]
+                              h = coef(hmp_fit)[[1]],
+                              v = coef(hmp_fit)[[2]]
                             ))
     }
   }
@@ -62,29 +67,41 @@ model_hmp <- function(hmp_table) {
 }
 
 plot_hmp <-
-function (hmp_table, type = "RG") 
-{
+  function (hmp_table, type = "RG")
+  {
     show_function <- data.frame(x = numeric(0), y = numeric(0))
     for (fr in unique(hmp_table$frequency)) {
-        hmp_fit <- NULL
-        ymin <- min(hmp_table[hmp_table$frequency == fr, ]$y)
-        try(hmp_fit <- nls(y ~ hmp::hmp(x, h, v, ymin), data = hmp_table[hmp_table$frequency == 
-            fr, ], start = list(h = 0, v = 2)))
-        if (!is.null(hmp_fit)) {
-            show_function <- rbind(show_function, data.frame(x = seq(-1,
-                1, 0.01), y = predict(hmp_fit, data.frame(x = seq(-1,
-                1, 0.01))), frequency = fr, h = coef(hmp_fit)[[1]],
-                ymin = ymin))
-        }
+      hmp_fit <- NULL
+      ymin <- min(hmp_table[hmp_table$frequency == fr, ]$y)
+      try(hmp_fit <- nls(y ~ hmp::hmp(x, h, v, ymin),
+                         data = hmp_table[hmp_table$frequency ==
+                                            fr, ],
+                         start = list(h = 0, v = 2)))
+      if (!is.null(hmp_fit)) {
+        show_function <- rbind(
+          show_function,
+          data.frame(
+            x = seq(-1, 1, 0.01),
+            y = predict(hmp_fit, data.frame(x = seq(-1, 1, 0.01))),
+            frequency = fr,
+            h = coef(hmp_fit)[[1]],
+            ymin = ymin
+          )
+        )
+      }
     }
-    ggplot(hmp_table, aes(x = x, y = y)) + geom_point() + facet_wrap(~frequency) + 
-        geom_line(data = show_function) + geom_label(data = unique(show_function[,
-        3:5]),
-        aes(x = h, y = ymin - 0.2, label = round(h, 3))) +
-        scale_y_continuous("log10 Sensitivity", limits = c(-1, 2)) + theme_bw() + 
-        scale_x_continuous("log10 C1/C2") +
-        ggtitle(class(hmp_table)[length(class(hmp_table))])
-}
+    ggplot(hmp_table, aes(x = x, y = y)) +
+      geom_point() +
+      facet_wrap(~ frequency) +
+      geom_line(data = show_function) + geom_label(data = unique(show_function[, 3:5]), aes(
+        x = h,
+        y = ymin - 0.2,
+        label = round(h, 3)
+      )) +
+      scale_y_continuous("log10 Sensitivity", limits = c(-1, 2)) + theme_bw() +
+      scale_x_continuous("log10 C1/C2") +
+      ggtitle(class(hmp_table)[length(class(hmp_table))])
+  }
 
 hmp_function <-
   function (hmp_table)
@@ -118,6 +135,29 @@ hmp_function <-
     return(show_function)
   }
 
+apply_hmp <- function(hmp_table) {
+
+  stopifnot(nrow(hmp_table) == 0 | length(unique(hmp_table$patid)) == 1)
+  stopifnot(nrow(hmp_table) == 0 | length(unique(hmp_table$frequency)) == 1)
+  
+  hmp_fit <- NULL
+  ymin <- min(hmp_table$y)
+  try(hmp_fit <- nls(y ~ hmp::hmp(x, h, v, ymin),
+                     data = hmp_table,
+                     start = list(h = 0, v = 2)))
+  return(list(patid = unique(hmp_table$patid), fit = hmp_fit))
+}
+
+apply_linear <- function(hmp_table) {
+
+  stopifnot(nrow(hmp_table) == 0 | length(unique(hmp_table$patid)) == 1)
+  stopifnot(nrow(hmp_table) == 0 | length(unique(hmp_table$frequency)) == 1)
+  
+  hmp_fit <- NULL
+  try(hmp_fit <- lm(y ~ x,
+                     data = hmp_table))
+  return(list(patid = unique(hmp_table$patid), fit = hmp_fit))
+}
 
 ```
 
@@ -191,7 +231,10 @@ ggplot(tCS_data[hmp_type == "green_red", ], aes(x = hmp_x, y = hmp_y)) +
   facet_wrap(~ factor(group) + patid) +
   scale_y_continuous("log10 Sensitivity", limits = c(0, 2)) + 
   theme_bw() + 
-  scale_x_continuous("log10 C1/C2")
+  scale_x_continuous("log10 C1/C2") +
+  ggtitle("Green vs. Red")
+
+ggsave(here("images", "green_red.png"), height = 8, width = 12)
 
 ggplot(tCS_data[hmp_type == "blue_green", ], aes(x = hmp_x, y = hmp_y)) +
   geom_point(aes(group = factor(frequency), color = factor(frequency))) +
@@ -201,50 +244,14 @@ ggplot(tCS_data[hmp_type == "blue_green", ], aes(x = hmp_x, y = hmp_y)) +
   facet_wrap(~ factor(group) + patid) +
   scale_y_continuous("log10 Sensitivity", limits = c(0, 2)) + 
   theme_bw() + 
-  scale_x_continuous("log10 C1/C2")
+  scale_x_continuous("log10 C1/C2") +
+  ggtitle("Blue vs. Green")
 
-select_data(2, tCS_data, type = "RG") |> plot_hmp()
-select_data(2, tCS_data, type = "BG") |> plot_hmp()
-select_data(75, tCS_data, type = "BG") |> plot_hmp()
-select_data(75, tCS_data, type = "BG") |> hmp_function()
+ggsave(here("images", "blue_green.png"), height = 8, width = 12)
 
 ```
 
 
-```{r}
-
-ggplot(tCS_data[hmp_type == "green_red", ], aes(x = hmp_x, y = hmp_y)) +
-  geom_point(aes(group = factor(frequency), color = factor(frequency))) +
-  geom_smooth(data = tCS_data[hmp_type == "green_red" & frequency == 2, ], 
-              mapping = aes(color = factor(frequency)),
-              method = "lm") +
-  facet_wrap(~ factor(group) + patid) +
-  scale_y_continuous("log10 Sensitivity", limits = c(0, 2)) + 
-  theme_bw() + 
-  scale_x_continuous("log10 C1/C2")
-
-ggplot(tCS_data[hmp_type == "blue_green", ], aes(x = hmp_x, y = hmp_y)) +
-  geom_point(aes(group = factor(frequency), color = factor(frequency))) +
-  geom_smooth(data = tCS_data[hmp_type == "blue_green" & frequency == 2, ], 
-              mapping = aes(color = factor(frequency)),
-              method = "lm") +
-  facet_wrap(~ factor(group) + patid) +
-  scale_y_continuous("log10 Sensitivity", limits = c(0, 2)) + 
-  theme_bw() + 
-  scale_x_continuous("log10 C1/C2")
-
-```
-
-
-```{r}
-
-source(here("projects", "2023_HMP", "RetinaLab-HMP2023_R_2024-07-16_1811.r"))
-redcap_data <- data.table(data)
-rm(data)
-
-redcap_data <- redcap_data[!is.na(redcap_repeat_instance)]
-redcap_data <- redcap_data[record_id != 2 | redcap_repeat_instance == 4]
-```
 
 ```{r}
 
@@ -270,3 +277,173 @@ ggplot(blue_green, aes(x = log_sens, y = tritan)) +
 
 ```
 
+```{r HMP parameters green_red}
+
+hmp_parameter_GR <-
+  lapply(unique(tCS_data$patid), function (x) {
+    select_data(pid = x,
+                data = tCS_data[frequency == 20, ],
+                type = "RG") |>
+      model_hmp()
+  })
+
+hmp_parameter_GR <- do.call("rbind.data.frame", hmp_parameter_GR)
+
+hmp_parameter_GR <- merge(hmp_parameter_GR, unique(tCS_data[, .(patid, group)]))
+
+hmp_parameter_GR <- merge(hmp_parameter_GR, redcap_data)
+
+ggplot(hmp_parameter_GR, aes(x = factor(group), y = v)) +
+  geom_point()
+
+ggplot(hmp_parameter_GR, aes(x = factor(group), y = h)) +
+  geom_point()
+
+ggplot(hmp_parameter_GR, aes(x = static_md_od, y = v)) +
+  geom_point()
+
+ggplot(hmp_parameter_GR, aes(x = protan_od, y = v)) +
+  geom_point()
+
+```
+
+```{r HMP parameters green_red}
+
+hmp_parameter_BG <-
+  lapply(unique(tCS_data$patid), function (x) {
+    select_data(pid = x,
+                data = tCS_data[frequency == 20, ],
+                type = "BG") |>
+      model_hmp()
+  })
+
+hmp_parameter_BG <- do.call("rbind.data.frame", hmp_parameter_BG)
+
+hmp_parameter_BG <- merge(hmp_parameter_BG, unique(tCS_data[, .(patid, group)]))
+
+hmp_parameter_BG <- merge(hmp_parameter_BG, redcap_data)
+
+ggplot(hmp_parameter_BG, aes(x = factor(group), y = v)) +
+  geom_point()
+
+ggplot(hmp_parameter_BG, aes(x = factor(group), y = h)) +
+  geom_point()
+
+```
+
+# Check model fit
+
+```{r}
+
+hmp_RG <-
+  lapply(unique(tCS_data$patid), function (x) {
+    select_data(pid = x,
+                data = tCS_data[frequency == 20, ],
+                type = "RG") |>
+      apply_model()
+  })
+
+fits <- lapply(hmp_RG, function(x) data.table(patid = x$patid, 
+                                      x = fitted.values(x$fit), 
+                                      y = resid(x$fit))) 
+
+fits <- fits[sapply(fits, function(x) return(ncol(x) == 3))]
+
+fits <- do.call("rbind.data.frame", fits)
+
+ggplot(fits, aes (x = x, y = y)) + 
+  geom_point(aes(group = patid))
+
+ggplot(fits, aes(x = y)) +
+  geom_histogram()
+
+shapiro.test(fits$x)
+
+```
+
+```{r}
+
+hmp_BG <-
+  lapply(unique(tCS_data$patid), function (x) {
+    select_data(pid = x,
+                data = tCS_data[frequency == 20, ],
+                type = "BG") |>
+      apply_model()
+  })
+
+fits <- lapply(hmp_BG, function(x) data.table(patid = x$patid, 
+                                      x = fitted.values(x$fit), 
+                                      y = resid(x$fit))) 
+
+fits <- fits[sapply(fits, function(x) return(ncol(x) == 3))]
+
+fits <- do.call("rbind.data.frame", fits)
+
+ggplot(fits, aes (x = x, y = y)) + 
+  geom_point(aes(group = patid)) +
+  geom_line(aes(group = patid))
+
+ggplot(fits, aes(x = y)) +
+  geom_histogram()
+
+shapiro.test(fits$y)
+
+```
+```{r}
+
+linear_RG <-
+  lapply(unique(tCS_data$patid), function (x) {
+    select_data(pid = x,
+                data = tCS_data[frequency == 2, ],
+                type = "RG") |>
+      apply_linear()
+  })
+
+fits <- lapply(linear_RG, function(x) data.table(patid = x$patid, 
+                                      x = fitted.values(x$fit), 
+                                      y = resid(x$fit))) 
+
+fits <- fits[sapply(fits, function(x) return(ncol(x) == 3))]
+
+fits <- do.call("rbind.data.frame", fits)
+
+
+ggplot(fits, aes (x = x, y = y)) + 
+  geom_point(aes(group = patid)) +
+  geom_line(aes(group = patid))
+
+ggplot(fits, aes(x = y)) +
+  geom_histogram()
+
+shapiro.test(fits$y)
+
+```
+```{r}
+
+linear_BG <-
+  lapply(unique(tCS_data$patid), function (x) {
+    select_data(pid = x,
+                data = tCS_data[frequency == 2, ],
+                type = "BG") |>
+      apply_linear()
+  })
+
+fits <- lapply(linear_BG, function(x) data.table(patid = x$patid, 
+                                      x = fitted.values(x$fit), 
+                                      y = resid(x$fit))) 
+
+fits <- fits[sapply(fits, function(x) return(ncol(x) == 3))]
+
+fits <- do.call("rbind.data.frame", fits)
+
+
+ggplot(fits, aes (x = x, y = y)) + 
+  geom_point(aes(group = patid)) +
+  geom_line(aes(group = patid))
+
+ggplot(fits, aes(x = y)) +
+  geom_histogram()
+
+shapiro.test(fits$y)
+
+```
