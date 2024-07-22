@@ -161,6 +161,22 @@ apply_linear <- function(hmp_table) {
 
 ```
 
+# Table 1
+
+```{r table 1}
+
+tab1 <- 
+  merge(redcap_data, unique(tCS_data[, .(patid, group)]))[, .(group, age_exam, bcva_od, static_md_od)]
+
+tab1[, group := factor(group, levels = c("normal", "OMD", "STGD", "RP"))]
+
+setkey(tab1, group, age_exam)
+
+print(tab1)
+
+```
+
+
 # Plot HMP curves
 
 HMP functions will be fit to the 20Hz green-red and blue-green HMP data and plot the fitted models.
@@ -290,19 +306,35 @@ hmp_parameter_GR <- do.call("rbind.data.frame", hmp_parameter_GR)
 
 hmp_parameter_GR <- merge(hmp_parameter_GR, unique(tCS_data[, .(patid, group)]))
 
-hmp_parameter_GR <- merge(hmp_parameter_GR, redcap_data)
+hmp_parameter_GR <- data.table(hmp_parameter_GR)
 
-ggplot(hmp_parameter_GR, aes(x = factor(group), y = v)) +
-  geom_point()
+# hmp_parameter_GR <- merge(hmp_parameter_GR, redcap_data)
+
+hmp_parameter_GR[, patid := factor(patid)]
+hmp_parameter_GR[, group := factor(group)]
 
 ggplot(hmp_parameter_GR, aes(x = factor(group), y = h)) +
   geom_point()
 
-ggplot(hmp_parameter_GR, aes(x = static_md_od, y = v)) +
+ggplot(hmp_parameter_GR, aes(x = factor(group), y = v)) +
   geom_point()
 
-ggplot(hmp_parameter_GR, aes(x = protan_od, y = v)) +
+ggplot(hmp_parameter_GR, aes(x = h, y = v)) +
   geom_point()
+
+ggplot(hmp_parameter_GR, aes(x = h)) +
+  geom_histogram() +
+  theme_bw()
+
+ggplot(hmp_parameter_GR, aes(x = v)) +
+  geom_histogram() +
+  theme_bw()
+
+summary(hmp_parameter_GR)
+
+IQR(hmp_parameter_GR$v, na.rm = FALSE)
+
+IQR(hmp_parameter_GR$h, na.rm = FALSE)
 
 ```
 
