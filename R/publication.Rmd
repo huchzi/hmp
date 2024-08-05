@@ -141,6 +141,10 @@ ggsave(here("images", "green_red.png"), height = 8, width = 12)
 
 ```{r plot by patients blue_green}
 
+ggplot(tCS_data[hmp_type == "blue_green" & patid %in% c(1, 75), ], aes(x = hmp_x, y = hmp_y)) +
+  geom_line(aes(group = factor(date_of_exam), color = factor(date_of_exam))) +
+  facet_grid(patid ~ factor(frequency))
+
 ggplot(tCS_data[hmp_type == "blue_green", ], aes(x = hmp_x, y = hmp_y)) +
   geom_point(aes(group = factor(frequency), color = factor(frequency))) +
   geom_line(data = hmp_fits[type == "blue_green", ], aes(x = x, y = y, color = factor(frequency))) +
