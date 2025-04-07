@@ -107,9 +107,8 @@ tab1 <-
 
 doc <- read_docx()
 doc <- body_add_flextable(doc, tab1)
-print(doc)
+print(doc, target = "table1.docx")
 
-# print(doc, target = "table1.docx")
 
 ```
 
@@ -291,4 +290,165 @@ cor.test(clinical_parameters$tritan_od, clinical_parameters$intercept, method = 
 
 ```
 
+# Check model fit
+
+## HMP models
+
+```{r hmp_residuals green_red at 20Hz}
+
+fits <- lapply(hmp_RG, function(x) data.table(patid = x$patid, 
+                                      x = fitted.values(x$fit), 
+                                      y = resid(x$fit))) 
+
+fits <- fits[sapply(fits, function(x) return(ncol(x) == 3))]
+
+fits <- do.call("rbind.data.frame", fits)
+
+ggplot(fits, aes (x = x, y = y)) + 
+  geom_point(aes(group = patid))
+
+ggplot(fits, aes(x = y)) +
+  geom_histogram()
+
+shapiro.test(fits$x)
+
+```
+
+```{r hmp_residuals blue_green at 20Hz}
+
+hmp_BG <-
+  lapply(unique(tCS_data$patid), function (x) {
+    select_data(pid = x,
+                data = tCS_data[frequency == 20, ],
+                type = "BG") |>
+      apply_hmp()
+  })
+
+fits <- lapply(hmp_BG, function(x) data.table(patid = x$patid, 
+                                      x = fitted.values(x$fit), 
+                                      y = resid(x$fit))) 
+
+fits <- fits[sapply(fits, function(x) return(ncol(x) == 3))]
+
+fits <- do.call("rbind.data.frame", fits)
+
+ggplot(fits, aes (x = x, y = y)) + 
+  geom_point(aes(group = patid)) +
+  geom_line(aes(group = patid))
+
+ggplot(fits, aes(x = y)) +
+  geom_histogram()
+
+shapiro.test(fits$y)
+
+```
+
+## Linear models
+
+```{r linear residuals green_red at 2Hz}
+
+linear_RG <-
+  lapply(unique(tCS_data$patid), function (x) {
+    select_data(pid = x,
+                data = tCS_data[frequency == 2, ],
+                type = "RG") |>
+      apply_linear()
+  })
+
+fits <- lapply(linear_RG, function(x) data.table(patid = x$patid, 
+                                      x = fitted.values(x$fit), 
+                                      y = resid(x$fit))) 
+
+fits <- fits[sapply(fits, function(x) return(ncol(x) == 3))]
+
+fits <- do.call("rbind.data.frame", fits)
+
+
+ggplot(fits, aes (x = x, y = y)) + 
+  geom_point(aes(group = patid)) +
+  geom_line(aes(group = patid))
+
+ggplot(fits, aes(x = y)) +
+  geom_histogram()
+
+shapiro.test(fits$y)
+
+```
+
+```{r linear residuals blue_green at 2Hz}
+
+linear_BG <-
+  lapply(unique(tCS_data$patid), function (x) {
+    select_data(pid = x,
+                data = tCS_data[frequency == 2, ],
+                type = "BG") |>
+      apply_linear()
+  })
+
+fits <- lapply(linear_BG, function(x) data.table(patid = x$patid, 
+                                      x = fitted.values(x$fit), 
+                                      y = resid(x$fit))) 
+
+fits <- fits[sapply(fits, function(x) return(ncol(x) == 3))]
+
+fits <- do.call("rbind.data.frame", fits)
+
+
+ggplot(fits, aes (x = x, y = y)) + 
+  geom_point(aes(group = patid)) +
+  geom_line(aes(group = patid))
+
+ggplot(fits, aes(x = y)) +
+  geom_histogram()
+
+shapiro.test(fits$y)
+
+```
+
+# Analyze REDCap data
+
+```{r}
+
+redcap_data[order(bcva_od), .(bcva_od, protan_od, tritan_od, static_md_od)]
+
+cor(redcap_data$bcva_od, redcap_data$protan_od, method = "spearman", use = "complete.obs")
+```
+
+# Tritan
+
+```{r}
+
+redcap_data[, patid := factor(patid)]
+hmp_parameters_BG <- merge(hmp_parameters_BG, redcap_data)
+
+ggplot(hmp_parameters_BG, aes(x = h, y = tritan_od)) +
+  geom_point(aes(color = group)) +
+  geom_smooth(method = "lm")
+
+ggplot(hmp_parameters_BG, aes(x = h, y = static_md_od)) +
+  geom_point(aes(color = group)) +
+  geom_smooth(method = "lm")
+
+```
+
+# Check for drift in blue LED
+
+```{r}
+
+drift_table <- merge(parameters, unique(tCS_data[, .(patid, date_of_exam)]))
+drift_table <- drift_table[date_of_exam != "2021-04-26", ]
+drift_table[, date_of_exam := as.POSIXct(date_of_exam)]
+
+
+ggplot(drift_table, aes(x = date_of_exam, y = h)) +
+  geom_point(aes(color = group)) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ type)
+
+ggplot(drift_table, aes(x = date_of_exam, y = v)) +
+  geom_point(aes(color = group)) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ type)
+
+```
 
