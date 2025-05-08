@@ -6,9 +6,9 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
+# Setup: Laden der benötigten Pakete und Initialisierung
 knitr::opts_chunk$set(echo = TRUE)
 
-# Load the required packages
 library(here)
 library(data.table)
 library(jsonlite)
@@ -18,44 +18,88 @@ library(officer)
 library(flextable)
 
 i_am("R/publication.Rmd")
-
 ```
 
 ```{r read data}
 
+# Lange Tabelle mit einzelnen tCS-Messungen (1 Zeile pro Schwelle)
 tCS_data <- read.csv(here("data", "tCS_data.csv")) |> data.table()
-redcap_data <- read.csv(here("data", "redcap_data.csv")) |> data.table()
+
+# Aus den Messungen extrahierte Modell-Parameter, sowie vorhergesagte Werte
 hmp_fits <- read.csv(here("data", "fits.csv")) |> data.table()
 parameters <- read.csv(here("data", "parameters.csv")) |> data.table()
+
+# Klinische Parameter
+redcap_data <- read.csv(here("data", "redcap_data.csv")) |> data.table()
 
 ```
 
 ```{r modify data: factoring}
+patient_order_groups <- c(
+  1, 2, 75, 213, 251,
+  260, 66, 122, 200, 201,
+  59, 61, 63, 65, 79,
+  199
+)
 
-patient_order_groups <- c(1, 2, 75, 213, 251, 260, 66, 122, 200, 201, 59, 61, 63, 65, 79, 199)
 gender <- c(1, 1, 1, 2, 2, 2, 1, 1, 2, 1, 2, 2, 1, 1, 2, 1)
 
-tCS_data[, patid := factor(patid, levels = patient_order_groups, ordered = TRUE)]
-tCS_data[, group := factor(group, levels = c("normal", "OMD", "STGD", "RP"), ordered = TRUE)]
+tCS_data[, patid := factor(patid,
+  levels = patient_order_groups,
+  ordered = TRUE
+)]
 
-redcap_data[, patid := factor(record_id, levels = patient_order_groups, ordered = TRUE)]
-redcap_data <- merge(redcap_data, 
-                     data.table(
-                       patid = factor(
-                         patient_order_groups, 
-                         levels = patient_order_groups, 
-                         ordered = TRUE
-                       ),
-                       gender = factor(
-                         gender,
-                         levels = c(1, 2),
-                         labels = c("male", "female")
-                       )
-                     ))
+tCS_data[, group := factor(group,
+  levels = c("normal", "OMD", "STGD", "RP"),
+  ordered = TRUE
+)]
 
-parameters[, patid := factor(patid, levels = patient_order_groups, ordered = TRUE)]
+redcap_data[, patid := factor(record_id,
+  levels = patient_order_groups,
+  ordered = TRUE
+)]
+
+redcap_data <- merge(
+  redcap_data,
+  data.table(
+    patid = factor(
+      patient_order_groups,
+      levels = patient_order_groups,
+      ordered = TRUE
+    ),
+    gender = factor(
+      gender,
+      levels = c(1, 2),
+      labels = c("male", "female")
+    )
+  )
+)
+
+parameters[, patid := factor(patid,
+  levels = patient_order_groups,
+  ordered = TRUE
+)]
 
 ```
+
+# Check available data
+
+Why are there NA values for hmp_type?
+
+```{r}
+
+exams <- unique(tCS_data[!is.na(hmp_type), .(patid, date_of_exam, hmp_type, group)])
+setkey(exams, patid, date_of_exam, hmp_type)
+
+exams[is.na(group), ] 
+
+# Should be changed in the database in the future
+tCS_data[is.na(group) & patid == 2, group := "normal"]
+tCS_data[is.na(group) & patid == 75, group := "normal"]
+tCS_data[is.na(group) & patid == 213, group := "normal"]
+
+```
+
 
 # Table 1
 
@@ -64,31 +108,37 @@ Add gender.
 Is age of 72 correct fo #260?
 
 ```{r table 1}
+tab1_data <-
+  merge(
+    redcap_data,
+    unique(tCS_data[, .(patid, group)]),
+    by = "patid"
+  )[, .(
+    group,
+    age_exam,
+    gender,
+    bcva_od,
+    static_md_od,
+    protan_od,
+    deutan_od,
+    tritan_od
+  )]
 
-tab1_data <- 
-  merge(redcap_data, 
-        unique(tCS_data[, .(patid, group)]))[, .(group, 
-                                                 age_exam, 
-                                                 gender, 
-                                                 bcva_od, 
-                                                 static_md_od,
-                                                 protan_od,
-                                                 deutan_od,
-                                                 tritan_od)]
-
-tab1_data[, bcva_od := log10(1/bcva_od)]
+tab1_data[, bcva_od := log10(1 / bcva_od)]
 
 setkey(tab1_data, group, age_exam)
 
-names(tab1_data) <- 
-  c("Dx",
+names(tab1_data) <-
+  c(
+    "Dx",
     "Age [yrs]",
     "Gender",
     "logMAR",
     "MD 10deg [dB]",
     "CCT_Protan",
     "CCT_Deutan",
-    "CCT_Tritan")
+    "CCT_Tritan"
+  )
 
 
 set_flextable_defaults(
@@ -108,16 +158,12 @@ tab1 <-
 doc <- read_docx()
 doc <- body_add_flextable(doc, tab1)
 print(doc)
-
-# print(doc, target = "table1.docx")
-
 ```
 
 # Plot HMP curves
 
 ```{r plot by patients green_red}
-
-get_group <- function(pid) { 
+get_group <- function(pid) {
   tCS_data[patid == pid, group] |>
     unique() |>
     as.character()
@@ -127,84 +173,127 @@ get_group <- Vectorize(get_group)
 
 ggplot(tCS_data[hmp_type == "green_red", ], aes(x = hmp_x, y = hmp_y)) +
   geom_point(aes(group = factor(frequency), color = factor(frequency))) +
-  geom_line(data = hmp_fits[type == "green_red", ], aes(x = x, y = y, color = factor(frequency))) +
-  geom_smooth(data = tCS_data[hmp_type == "green_red" & frequency == 2, ],
-              method = "lm", aes(color = factor(frequency))) + 
-  facet_wrap(~ factor(patid, levels = patient_order_groups, ordered = TRUE), 
-             labeller = as_labeller(get_group)) +
-  scale_y_continuous(expression(log[10] * " " * Sensitivity), limits = c(0, 2)) +
-  scale_x_continuous(expression(log[10] * " " * frac(C[red], C[green])), limits = c(-1.1, 1.1)) +
-  theme_bw() + 
+  geom_line(data = hmp_fits[type == "green_red", ], aes(
+    x = x,
+    y = y,
+    color = factor(frequency),
+    group = date_of_exam
+  )) +
+  geom_smooth(
+    data = tCS_data[hmp_type == "green_red" & frequency == 2, ],
+    method = "lm",
+    aes(color = factor(frequency),
+        group = date_of_exam)
+  ) +
+  facet_wrap(~ factor(patid, levels = patient_order_groups, ordered = TRUE),
+    labeller = as_labeller(get_group)
+  ) +
+  scale_y_continuous(expression(log[10] * " " * Sensitivity),
+    limits = c(0, 2)
+  ) +
+  scale_x_continuous(expression(log[10] * " " * frac(C[red], C[green])),
+    limits = c(-1.1, 1.1)
+  ) +
+  theme_bw() +
   guides(group = "none", color = "none")
 
 ggsave(here("images", "green_red.png"), height = 8, width = 12)
 ```
 
 ```{r plot by patients blue_green}
-
 ggplot(tCS_data[hmp_type == "blue_green", ], aes(x = hmp_x, y = hmp_y)) +
   geom_point(aes(group = factor(frequency), color = factor(frequency))) +
-  geom_line(data = hmp_fits[type == "blue_green", ], aes(x = x, 
-                                                         y = y, 
-                                                         color = factor(frequency))) +
-  geom_smooth(data = tCS_data[hmp_type == "blue_green" & frequency == 2, ],
-              method = "lm", aes(color = factor(frequency))) + 
-  facet_wrap(~ factor(patid, levels = patient_order_groups, ordered = TRUE), 
-             labeller = as_labeller(get_group)) +
-  scale_y_continuous(expression(log[10] * " " * Sensitivity), limits = c(0, 2)) +
-  scale_x_continuous(expression(log[10] * " " * frac(C[green], C[blue])), limits = c(-1.1, 1.1)) +
-  theme_bw() + 
+  geom_line(data = hmp_fits[type == "blue_green", ], aes(
+    x = x,
+    y = y,
+    color = factor(frequency),
+    group = date_of_exam
+  )) +
+  geom_smooth(
+    data = tCS_data[hmp_type == "blue_green" & frequency == 2, ],
+    method = "lm", 
+    aes(color = factor(frequency),
+        group = date_of_exam)
+  ) +
+  facet_wrap(~ factor(patid, levels = patient_order_groups, ordered = TRUE),
+    labeller = as_labeller(get_group)
+  ) +
+  scale_y_continuous(expression(log[10] * " " * Sensitivity),
+    limits = c(0, 2)
+  ) +
+  scale_x_continuous(expression(log[10] * " " * frac(C[green], C[blue])),
+    limits = c(-1.1, 1.1)
+  ) +
+  theme_bw() +
   guides(group = "none", color = "none")
 
 ggsave(here("images", "blue_green.png"), height = 8, width = 12)
 
-ggplot(tCS_data[hmp_type == "blue_green" & patid %in% c(2, 75, 213) & frequency == 20, ],
-       aes(x = hmp_x, y = hmp_y)) +
+ggplot(
+  tCS_data[hmp_type == "blue_green" &
+    patid %in% c(2, 75, 213) &
+    frequency == 20, ],
+  aes(x = hmp_x, y = hmp_y)
+) +
   geom_line(aes(group = date_of_exam, color = date_of_exam)) +
   facet_wrap(~ factor(patid)) +
-  scale_y_continuous(expression(log[10] * " " * Sensitivity), limits = c(0, 2)) +
-  scale_x_continuous(expression(log[10] * " " * frac(C[green], C[blue])), limits = c(-1.1, 1.1)) +
+  scale_y_continuous(expression(log[10] * " " * Sensitivity),
+    limits = c(0, 2)
+  ) +
+  scale_x_continuous(expression(log[10] * " " * frac(C[green], C[blue])),
+    limits = c(-1.1, 1.1)
+  ) +
   theme_bw()
-
 ```
 
 # Plot by groups
 
 ```{r plot by groups}
+tCS_data[, freq_lab := factor(frequency,
+  levels = c(2, 20),
+  labels = c("2 Hz", "20 Hz")
+)]
 
-tCS_data[, freq_lab := factor(frequency, levels = c(2, 20), labels = c("2 Hz", "20 Hz"))]
-
-ggplot(na.omit(tCS_data[hmp_type == "green_red", ]),
-       aes(
-         x = hmp_x,
-         y = hmp_y,
-         group = factor(patid),
-         color = factor(patid)
-       )) +
+ggplot(
+  na.omit(tCS_data[hmp_type == "green_red", ]),
+  aes(
+    x = hmp_x,
+    y = hmp_y,
+    group = factor(patid),
+    color = factor(patid)
+  )
+) +
   stat_summary(fun = "mean", geom = "line") +
   facet_grid(freq_lab ~ group) +
-  scale_y_continuous(expression(log[10] * " " * Sensitivity), limits = c(0, 2)) +
+  scale_y_continuous(expression(log[10] * " " * Sensitivity),
+    limits = c(0, 2)
+  ) +
   theme_bw() +
-  scale_x_continuous(expression(log[10] * " " * frac(C[red], C[green])), limits = c(-1.1, 1.1)) +
+  scale_x_continuous(expression(log[10] * " " * frac(C[red], C[green])),
+    limits = c(-1.1, 1.1)
+  ) +
   guides(color = "none")
 
 ggsave(here("images", "rawGR.png"))
 
-ggplot(na.omit(tCS_data[hmp_type == "blue_green", ]),
-       aes(
-         x = hmp_x,
-         y = hmp_y,
-         group = factor(patid),
-         color = factor(patid)
-       )) +
+ggplot(
+  na.omit(tCS_data[hmp_type == "blue_green", ]),
+  aes(
+    x = hmp_x,
+    y = hmp_y,
+    group = factor(patid),
+    color = factor(patid)
+  )
+) +
   stat_summary(fun = "mean", geom = "line") +
   facet_grid(freq_lab ~ group) +
-  scale_y_continuous(expression(log[10] * " " * Sensitivity), limits = c(0, 2)) +
+  scale_y_continuous(expression(log[10] * " " * Sensitivity),
+    limits = c(0, 2)
+  ) +
   theme_bw() +
   scale_x_continuous(expression(log[10] * " " * frac(C[green], C[blue]))) +
   guides(color = "none")
 ggsave(here("images", "rawBG.png"))
-
 ```
 
 # Compare parameters
@@ -212,7 +301,6 @@ ggsave(here("images", "rawBG.png"))
 ## Luminance
 
 ```{r compare luminance}
-
 compare_luminance <- dcast(parameters[, .(patid, type, v)], patid ~ type)
 compare_color <- dcast(parameters[, .(patid, type, intercept)], patid ~ type)
 
@@ -225,11 +313,9 @@ ggplot(compare_luminance, aes(x = RG, y = BG)) +
   scale_y_continuous("Blue-Green HMP: v-parameter")
 
 cor.test(compare_luminance$BG, compare_luminance$RG, method = "spearman")
-
 ```
 
 ```{r compare color}
-
 compare_color <- dcast(parameters[, .(patid, type, intercept)], patid ~ type)
 
 ggplot(compare_color, aes(x = RG, y = BG)) +
@@ -242,13 +328,11 @@ ggplot(compare_color, aes(x = RG, y = BG)) +
 
 
 cor.test(compare_color$BG, compare_luminance$RG, method = "spearman")
-
 ```
 
 # Compare with clinical parameters
 
 ```{r red-green vs. clinical}
-
 clinical_parameters <- merge(redcap_data, parameters[type == "RG", ])
 
 clinical_parameters[, .(patid, deutan_od, v)]
@@ -260,18 +344,22 @@ ggplot(clinical_parameters, aes(x = static_md_od, y = v)) +
   geom_point() +
   scale_x_log10()
 
-cor.test(clinical_parameters$static_md_od, clinical_parameters$v, method = "spearman")
+cor.test(clinical_parameters$static_md_od,
+  clinical_parameters$v,
+  method = "spearman"
+)
 
 ggplot(clinical_parameters, aes(x = deutan_od, y = intercept)) +
   geom_point() +
   scale_x_log10()
 
-cor.test(clinical_parameters$protan_od, clinical_parameters$intercept, method = "spearman")
-
+cor.test(clinical_parameters$protan_od,
+  clinical_parameters$intercept,
+  method = "spearman"
+)
 ```
 
 ```{r blue-green vs. clinical}
-
 clinical_parameters <- merge(redcap_data, parameters[type == "BG", ])
 
 clinical_parameters[, .(patid, tritan_od, v)]
@@ -282,13 +370,16 @@ ggplot(clinical_parameters, aes(x = tritan_od, y = static_md_od)) +
 ggplot(clinical_parameters, aes(x = static_md_od, y = v)) +
   geom_point()
 
-cor.test(clinical_parameters$static_md_od, clinical_parameters$v, method = "spearman")
+cor.test(clinical_parameters$static_md_od,
+  clinical_parameters$v,
+  method = "spearman"
+)
 
 ggplot(clinical_parameters, aes(x = protan_od, y = intercept)) +
   geom_point()
 
-cor.test(clinical_parameters$tritan_od, clinical_parameters$intercept, method = "spearman")
-
+cor.test(clinical_parameters$tritan_od,
+  clinical_parameters$intercept,
+  method = "spearman"
+)
 ```
-
-
